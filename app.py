@@ -72,12 +72,12 @@ def fetch_target_item(history):
         print(" -> 選定失敗のためデフォルトテーマを使用します。", flush=True)
         return "最新のおすすめ便利ガジェット"
 
-# 2. 記事＆告知文の生成（URLエンコード処理追加）
+# 2. 記事＆告知文の生成
 def build_content(item_name):
     print(f"2/4 【{item_name}】のコンテンツを生成中...", flush=True)
 
-    # URL内のスペースを安全な形式（+）に変換
-    safe_item_name = urllib.parse.quote_plus(item_name)
+    # URL内のスペースや特殊文字を完全にエンコード（URLでエラーにならない形式に変換）
+    safe_item_name = urllib.parse.quote(item_name)
     amazon_url = f"https://www.amazon.co.jp/s?k={safe_item_name}&tag={AMAZON_ID}" if AMAZON_ID else "https://www.amazon.co.jp"
 
     prompt = f"""
@@ -93,8 +93,8 @@ def build_content(item_name):
     [1行目: 惹きつけるnoteタイトル]
     [2行目以降: note本文（1200文字程度）]
     ・人気の理由、メリット・デメリット、おすすめな人を詳しく解説。
-    ・文章内に以下の案内文を独立した行として必ず含めてください：
-      👉 Amazonで詳細やレビューを確認する
+    ・文章内のリンク案内部分は、以下の文字列を**そのまま変更せずに改行して単独行で**記載してください：
+      👉 Amazonで詳細やレビューを確認する:
       {amazon_url}
     ・末尾に「※この記事にはAmazonアソシエイトリンクが含まれています」とハッシュタグ3つを記載。
 
