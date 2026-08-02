@@ -86,7 +86,7 @@ def fetch_real_amazon_item(history):
     print(" -> 商品取得に失敗したため、デフォルト商品を使用します。", flush=True)
     return "Amazon Echo Dot (エコードット)", "B09B8XJ7X3"
 
-# 2. 記事＆告知文の生成（高品質クリエイタースタイルを強制）
+# 2. 記事＆告知文の生成
 def build_content(item_name, item_asin):
     print(f"2/4 【{item_name[:20]}...】のコンテンツを生成中...", flush=True)
 
@@ -99,30 +99,29 @@ def build_content(item_name, item_asin):
     【スタイル・ルールの絶対遵守】
     ・文体：「〜です・〜ます」調。読者に語りかけるような親しみやすさと、説得力のあるレビュー。
     ・空白と余白：スマホでの読みやすさを最優先し、1〜2文ごとに必ず改行（空白行）を入れること。文字が詰まった長文段落は絶対にNGです。
-    ・見出し：大見出しは必ず行頭に「## 」、小見出しは「### 」を使用してください。
+    ・見出し：大見出しは必ず行頭に「## 」「### 」を使用してください。
     
     【記事の構成（この通りに書いてください）】
-    [1行目: 惹きつけるタイトル（例：【購入レビュー】〇〇を買ったら生活の質が爆上がりした話、など）]
+    [1行目: 惹きつけるタイトル]
     [2行目以降: 本文]
     
-    （ゆったりとした導入。挨拶、悩みの共感、この商品に出会ったきっかけなど）
+    （導入文）
     
     ## 結論：一言でいうとどんな商品？
-    （結論をズバッと書く）
+    （結論）
     
     ## 〇〇のここがスゴイ
-    （3つほどのメリットを、小見出し「### 」を用いて深掘り）
+    （メリット解説）
     
     ## 気になる点・注意点
-    （読者の信頼を得るため、正直なマイナスポイントも1〜2つ書く）
+    （デメリット解説）
     
     ## こんな人におすすめ
-    （箇条書き「・」で対象者をリストアップ）
+    （リスト）
     
     ## まとめ
-    （総評と背中を押す一言）
+    （総評）
     
-    （※ここから下にAmazonリンクを配置※）
     👇 Amazonで詳細やレビューを確認する
     [[AMAZON_URL]]
     
@@ -165,7 +164,7 @@ def build_content(item_name, item_asin):
     
     return title, body, x_text.strip(), amazon_url
 
-# 3. noteへ投稿（専用リンクカード化 ＆ 確実な公開ボタン押下）
+# 3. noteへ投稿（確実なペーストによるカード化＆投稿ボタン完全クリック）
 def publish_note(title, body, amazon_url):
     print("3/4 noteへ自動投稿中（リッチテキスト変換処理）...", flush=True)
     
@@ -177,9 +176,11 @@ def publish_note(title, body, amazon_url):
 
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=True)
+        # クリップボードアクセス権限を許可
         context = browser.new_context(
             storage_state="session_temp.json",
-            user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+            user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+            permissions=["clipboard-read", "clipboard-write"]
         )
         page = context.new_page()
         
@@ -204,14 +205,18 @@ def publish_note(title, body, amazon_url):
                 page.keyboard.press("Enter")
                 continue
             
-            if trimmed_line == amazon_url:
-                # 【修正1】URLを「専用のクリックするやつ（リンクカード）」にするための処理
-                print(" -> URLのリンクカード化処理を実行中...", flush=True)
-                page.keyboard.insert_text(amazon_url)
-                page.wait_for_timeout(1000) # 入力後、少し待つ
-                page.keyboard.press("Enter") # ここでEnterを押すことでnote側がカード変換を始める
-                page.wait_for_timeout(6000) # カードの画像等が読み込まれるまで長めに待機
-                page.keyboard.press("Enter") # 念のためカードの下に改行を追加
+            # URLが含まれる行の判定（部分一致で確実に捕獲）
+            if amazon_url in trimmed_line or ("amazon.co.jp" in trimmed_line and "http" in trimmed_line):
+                print(" -> URLのリンクカード化処理（Paste動作）を実行中...", flush=True)
+                
+                # クリップボード経由でURLを貼り付け（ProseMirrorが埋め込みカードへ変換）
+                page.evaluate(f"navigator.clipboard.writeText('{amazon_url}')")
+                page.keyboard.press("Control+v")
+                page.wait_for_timeout(1000)
+                page.keyboard.press("Enter")
+                print(" -> リンクカード読み込み完了待機中...", flush=True)
+                page.wait_for_timeout(6000)
+                page.keyboard.press("Enter")
                 
             elif trimmed_line.startswith("### "):
                 page.keyboard.type("### ")
@@ -232,26 +237,26 @@ def publish_note(title, body, amazon_url):
 
         page.wait_for_timeout(2000)
         
-        # 【修正2】下書きで止まらないように、公開処理のボタンクリックを強化
+        # 公開設定ボタンを押す
         print(" -> 公開設定を開きます...", flush=True)
-        config_btn = page.locator("button:has-text('公開設定')").first
+        config_btn = page.locator("button:has-text('公開設定'), button:has-text('公開に進む')").first
+        config_btn.wait_for(state="visible", timeout=15000)
         config_btn.click()
         
-        # モーダル（公開設定画面）が下から上に上がってくるアニメーションを待つ
+        # モーダル（公開設定画面）が表示されるまで確実に待つ
         print(" -> 公開画面の準備を待機中...", flush=True)
         page.wait_for_timeout(4000)
         
         print(" -> 投稿を実行しています...", flush=True)
-        # モーダル内にある「公開する」または「投稿する」ボタンを正確に狙い撃ち
-        submit_btn = page.locator("button:has-text('公開する'), button:has-text('投稿する'), button:has-text('いますぐ公開')").first
-        submit_btn.click()
+        # モーダル内の投稿ボタンを特定して強固にクリック
+        submit_btn = page.locator("button:has-text('投稿する'), button:has-text('公開する'), button:has-text('記事を公開')").last
+        submit_btn.wait_for(state="visible", timeout=15000)
+        submit_btn.click(force=True)
         
         print(" -> 記事の公開完了を待機中...", flush=True)
-        # 公開完了してURLが変わるまで待機
-        for _ in range(15):
+        for _ in range(20):
             time.sleep(2)
             current_url = page.url
-            # editor.note.com や drafts のURLから、通常の公開URLに変わったかチェック
             if "note.com" in current_url and "editor" not in current_url and "drafts" not in current_url:
                 post_url = current_url
                 break
