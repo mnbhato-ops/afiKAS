@@ -75,7 +75,7 @@ def fetch_target_item(history):
 def build_content(item_name):
     print(f"2/4 【{item_name}】のコンテンツを生成中...", flush=True)
 
-    amazon_url = f"https://www.amazon.co.jp/dp/s?k={item_name}&tag={AMAZON_ID}" if AMAZON_ID else "Amazon検索ページ"
+    amazon_url = f"https://www.amazon.co.jp/dp/s?k={item_name}&tag={AMAZON_ID}" if AMAZON_ID else "https://www.amazon.co.jp"
 
     prompt = f"""
     話題の商品「{item_name}」を紹介するnote記事とX(Twitter)告知文を作成してください。
@@ -90,7 +90,9 @@ def build_content(item_name):
     [1行目: 惹きつけるnoteタイトル]
     [2行目以降: note本文（1200文字程度）]
     ・人気の理由、メリット・デメリット、おすすめな人を詳しく解説。
-    ・文章内に「👉 Amazonで詳細やレビューを確認する: {amazon_url}」を自然に挿入してください。
+    ・文章内に以下の案内文を独立した行として必ず含めてください：
+      👉 Amazonで詳細やレビューを確認する
+      {amazon_url}
     ・末尾に「※この記事にはAmazonアソシエイトリンクが含まれています」とハッシュタグ3つを記載。
 
     ---X_POST---
@@ -126,7 +128,7 @@ def build_content(item_name):
     
     return title, body, x_text.strip()
 
-# 3. noteへ投稿（確実な公開ボタン押下と遷移待機）
+# 3. noteへ投稿（リンク自動認識処理を追加）
 def publish_note(title, body):
     print("3/4 noteへ自動投稿中...", flush=True)
     
@@ -156,6 +158,11 @@ def publish_note(title, body):
         # 本文入力
         body_selector = "div[data-placeholder*='本文'], div[contenteditable='true']"
         page.fill(body_selector, body)
+        page.wait_for_timeout(2000)
+        
+        # 本文末尾でEnterキーを押してURLの自動リンク化・埋め込みカード化を確定させる
+        page.focus(body_selector)
+        page.keyboard.press("Enter")
         page.wait_for_timeout(3000)
         
         print(" -> 公開設定を開きます...", flush=True)
@@ -165,14 +172,10 @@ def publish_note(title, body):
         page.wait_for_timeout(5000)
         
         print(" -> 投稿を実行しています...", flush=True)
-        # より広範なボタン判定
         submit_btn = "button:has-text('投稿する'), button:has-text('記事を公開'), button:has-text('公開する'), button:has-text('投稿')"
         page.wait_for_selector(submit_btn, timeout=15000)
-        
-        # 確実にクリック
         page.click(submit_btn)
         
-        # 公開完了のページ（editor.note.com ではないページ）に切り替わるまで待機
         print(" -> 記事の公開完了を待機中...", flush=True)
         for _ in range(15):
             time.sleep(2)
@@ -193,7 +196,7 @@ def publish_note(title, body):
             
     return post_url
 
-# 4. X(Twitter)へ告知投稿（エラーハンドリング強化）
+# 4. X(Twitter)へ告知投稿
 def publish_x(x_text, post_url):
     print("4/4 X(Twitter)へ送信中...", flush=True)
     
@@ -217,11 +220,11 @@ def publish_x(x_text, post_url):
         if res.status_code in [200, 201]:
             print(" -> Xへの投稿が完了しました！🎉", flush=True)
         elif res.status_code == 402:
-            print(" -> [注意] X APIのクレジット制限(Status 402)のため、ツイート投稿をスキップしました。", flush=True)
+            print(" -> [注意] X APIの制限(Status 402)のため投稿をスキップしました。", flush=True)
         else:
             print(f" -> X投稿失敗 (Status: {res.status_code}): {res.text}", flush=True)
     except Exception as e:
-        print(f" -> X投稿時にエラーが発生しました: {e}", flush=True)
+        print(f" -> X投稿エラー: {e}", flush=True)
 
 if __name__ == "__main__":
     history = get_history()
