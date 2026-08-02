@@ -1,7 +1,6 @@
 import sys
 import os
 import json
-from datetime import datetime
 import time
 import requests
 
@@ -15,7 +14,7 @@ except Exception as e:
     print(f"ライブラリ読み込みエラー: {e}", flush=True)
     sys.exit(1)
 
-# --- 新しい環境変数の読み込み ---
+# --- 環境変数の読み込み ---
 GEMINI_KEY = os.environ.get("GEMINI_KEY")
 NOTE_SESSION = os.environ.get("NOTE_SESSION")
 AMAZON_ID = os.environ.get("AMAZON_ID", "")
@@ -59,7 +58,7 @@ def fetch_target_item(history):
     ・出力は「選定した商品名（または製品ジャンル名）」のみを1行で返してください。解説や挨拶は不要です。
     """
     
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={GEMINI_KEY}"
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash:generateContent?key={GEMINI_KEY}"
     headers = {"Content-Type": "application/json"}
     payload = {"contents": [{"parts": [{"text": prompt}]}]}
 
@@ -72,21 +71,18 @@ def fetch_target_item(history):
         print(" -> 選定失敗のためデフォルトテーマを使用します。", flush=True)
         return "最新のおすすめ便利ガジェット"
 
-# 2. 記事＆告知文の生成
+# 2. 記事＆告知文の生成（時間指定なし）
 def build_content(item_name):
     print(f"2/4 【{item_name}】のコンテンツを生成中...", flush=True)
-    
-    current_hour = datetime.now().hour
-    if current_hour < 12:
-        time_style = "【朝スタイル】通勤通学中にサクッと読める実用的なトピック"
-    else:
-        time_style = "【夜スタイル】一日の終わりにじっくり読める深掘りレビュー"
 
     amazon_url = f"https://www.amazon.co.jp/dp/s?k={item_name}&tag={AMAZON_ID}" if AMAZON_ID else "Amazon検索ページ"
 
     prompt = f"""
     話題の商品「{item_name}」を紹介するnote記事とX(Twitter)告知文を作成してください。
-    {time_style}
+    
+    【ルール】
+    ・文体は親しみやすく丁寧な「〜です・〜ます」調
+    ・読者の興味を惹く構成で魅力をしっかり解説してください
     
     【出力フォーマット】
     「---X_POST---」という区切り線を必ず挟んで出力してください。
