@@ -76,7 +76,6 @@ def fetch_target_item(history):
 def build_content(item_name):
     print(f"2/4 【{item_name}】のコンテンツを生成中...", flush=True)
 
-    # URL内のスペースや特殊文字を完全にエンコード（URLでエラーにならない形式に変換）
     safe_item_name = urllib.parse.quote(item_name)
     amazon_url = f"https://www.amazon.co.jp/s?k={safe_item_name}&tag={AMAZON_ID}" if AMAZON_ID else "https://www.amazon.co.jp"
 
@@ -93,8 +92,7 @@ def build_content(item_name):
     [1行目: 惹きつけるnoteタイトル]
     [2行目以降: note本文（1200文字程度）]
     ・人気の理由、メリット・デメリット、おすすめな人を詳しく解説。
-    ・文章内のリンク案内部分は、以下の文字列を**そのまま変更せずに改行して単独行で**記載してください：
-      👉 Amazonで詳細やレビューを確認する:
+    ・文章内に「👉 Amazonで詳細やレビューを確認する」というテキストの直後に、以下のURLを単独行として配置してください：
       {amazon_url}
     ・末尾に「※この記事にはAmazonアソシエイトリンクが含まれています」とハッシュタグ3つを記載。
 
@@ -129,10 +127,10 @@ def build_content(item_name):
     title = lines[0].strip()
     body = "\n".join(lines[1:]).strip()
     
-    return title, body, x_text.strip()
+    return title, body, x_text.strip(), amazon_url
 
-# 3. noteへ投稿
-def publish_note(title, body):
+# 3. noteへ投稿（ペーストイベントのシミュレートによる完全ハイパーリンク化）
+def publish_note(title, body, amazon_url):
     print("3/4 noteへ自動投稿中...", flush=True)
     
     state_data = json.loads(NOTE_SESSION)
@@ -158,14 +156,36 @@ def publish_note(title, body):
         page.fill(title_selector, title)
         page.wait_for_timeout(1000)
         
-        # 本文入力
+        # 本文入力エリアの要素を待機
         body_selector = "div[data-placeholder*='本文'], div[contenteditable='true']"
-        page.fill(body_selector, body)
-        page.wait_for_timeout(2000)
+        page.wait_for_selector(body_selector, timeout=15000)
         
-        # 本文末尾でEnterキーを押して自動リンク化を確定させる
-        page.focus(body_selector)
-        page.keyboard.press("Enter")
+        # 本文中の改行を <br> に変換し、Amazon URL 部分を <a> タグに変換
+        html_body = body.replace("\n", "<br>")
+        if amazon_url in body:
+            link_html = f'<a href="{amazon_url}" target="_blank" rel="noopener noreferrer">{amazon_url}</a>'
+            html_body = html_body.replace(amazon_url, link_html)
+
+        # クリップボードのペーストイベントを擬似発火させてエディタに注入（ProseMirror対応）
+        page.evaluate("""({ selector, htmlContent }) => {
+            const el = document.querySelector(selector);
+            if (!el) return;
+            
+            el.focus();
+            
+            const dataTransfer = new DataTransfer();
+            dataTransfer.setData('text/html', htmlContent);
+            dataTransfer.setData('text/plain', htmlContent.replace(/<br\s*[\/]?>/gi, "\\n"));
+            
+            const pasteEvent = new ClipboardEvent('paste', {
+                clipboardData: dataTransfer,
+                bubbles: true,
+                cancelable: true
+            });
+            
+            el.dispatchEvent(pasteEvent);
+        }""", {"selector": body_selector, "htmlContent": html_body})
+        
         page.wait_for_timeout(3000)
         
         print(" -> 公開設定を開きます...", flush=True)
@@ -233,10 +253,10 @@ if __name__ == "__main__":
     history = get_history()
     target_item = fetch_target_item(history)
     
-    title, body, x_text = build_content(target_item)
+    title, body, x_text, amazon_url = build_content(target_item)
     print(f"\n生成タイトル: {title}\n", flush=True)
     
-    note_url = publish_note(title, body)
+    note_url = publish_note(title, body, amazon_url)
     if note_url and "note.com" in note_url and "editor.note.com" not in note_url:
         print(f"✅ note投稿成功: {note_url}", flush=True)
         publish_x(x_text, note_url)
