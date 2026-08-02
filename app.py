@@ -3,6 +3,7 @@ import os
 import json
 import time
 import requests
+import urllib.parse
 
 print("=== SNS Auto Publisher Started ===", flush=True)
 
@@ -71,11 +72,13 @@ def fetch_target_item(history):
         print(" -> 選定失敗のためデフォルトテーマを使用します。", flush=True)
         return "最新のおすすめ便利ガジェット"
 
-# 2. 記事＆告知文の生成
+# 2. 記事＆告知文の生成（URLエンコード処理追加）
 def build_content(item_name):
     print(f"2/4 【{item_name}】のコンテンツを生成中...", flush=True)
 
-    amazon_url = f"https://www.amazon.co.jp/dp/s?k={item_name}&tag={AMAZON_ID}" if AMAZON_ID else "https://www.amazon.co.jp"
+    # URL内のスペースを安全な形式（+）に変換
+    safe_item_name = urllib.parse.quote_plus(item_name)
+    amazon_url = f"https://www.amazon.co.jp/s?k={safe_item_name}&tag={AMAZON_ID}" if AMAZON_ID else "https://www.amazon.co.jp"
 
     prompt = f"""
     話題の商品「{item_name}」を紹介するnote記事とX(Twitter)告知文を作成してください。
@@ -128,7 +131,7 @@ def build_content(item_name):
     
     return title, body, x_text.strip()
 
-# 3. noteへ投稿（リンク自動認識処理を追加）
+# 3. noteへ投稿
 def publish_note(title, body):
     print("3/4 noteへ自動投稿中...", flush=True)
     
@@ -160,7 +163,7 @@ def publish_note(title, body):
         page.fill(body_selector, body)
         page.wait_for_timeout(2000)
         
-        # 本文末尾でEnterキーを押してURLの自動リンク化・埋め込みカード化を確定させる
+        # 本文末尾でEnterキーを押して自動リンク化を確定させる
         page.focus(body_selector)
         page.keyboard.press("Enter")
         page.wait_for_timeout(3000)
