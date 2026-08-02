@@ -76,9 +76,11 @@ def fetch_target_item(history):
 def build_content(item_name):
     print(f"2/4 【{item_name}】のコンテンツを生成中...", flush=True)
 
-    safe_item_name = urllib.parse.quote(item_name)
+    # urllib.parse.quote_plusを使ってスペースを"+"にするなど、より安全なURLエンコードを実施
+    safe_item_name = urllib.parse.quote_plus(item_name)
     amazon_url = f"https://www.amazon.co.jp/s?k={safe_item_name}&tag={AMAZON_ID}" if AMAZON_ID else "https://www.amazon.co.jp"
 
+    # プロンプト修正: AIにはURLを直接触らせず、プレースホルダー [[AMAZON_URL]] を出力させる
     prompt = f"""
     話題の商品「{item_name}」を紹介するnote記事とX(Twitter)告知文を作成してください。
     
@@ -92,8 +94,7 @@ def build_content(item_name):
     [1行目: 惹きつけるnoteタイトル]
     [2行目以降: note本文（1200文字程度）]
     ・人気の理由、メリット・デメリット、おすすめな人を詳しく解説。
-    ・文章内に「👉 Amazonで詳細やレビューを確認する」というテキストの直後に、以下のURLを単独行として配置してください：
-      {amazon_url}
+    ・文章内に「👉 Amazonで詳細やレビューを確認する」というテキストを配置し、必ずその【次の行】にプレースホルダー文字列として [[AMAZON_URL]] と1行だけ記述してください。（これ以外のURLや文字は混ぜないでください）
     ・末尾に「※この記事にはAmazonアソシエイトリンクが含まれています」とハッシュタグ3つを記載。
 
     ---X_POST---
@@ -126,6 +127,17 @@ def build_content(item_name):
     lines = note_part.strip().split("\n")
     title = lines[0].strip()
     body = "\n".join(lines[1:]).strip()
+    
+    # AIが指示を無視して1行にくっつけた場合の強制改行処理
+    body = body.replace("👉 Amazonで詳細やレビューを確認する:", "👉 Amazonで詳細やレビューを確認する\n")
+    body = body.replace("👉 Amazonで詳細やレビューを確認する", "👉 Amazonで詳細やレビューを確認する\n")
+    
+    # プレースホルダーを、プログラム側で生成した確実なURLにすり替える
+    body = body.replace("[[AMAZON_URL]]", amazon_url)
+    
+    # 余分な空白行を整理
+    while "\n\n\n" in body:
+        body = body.replace("\n\n\n", "\n\n")
     
     return title, body, x_text.strip(), amazon_url
 
@@ -171,17 +183,17 @@ def publish_note(title, body, amazon_url):
                 page.keyboard.press("Enter")
                 continue
             
-            # URLが含まれる行の場合、文字を入力した後にEnterを押してnoteの自動リンク変換を発火させる
-            if amazon_url in trimmed_line or trimmed_line.startswith("http"):
-                page.keyboard.type(trimmed_line, delay=10)
-                page.keyboard.press("Enter")
-                page.wait_for_timeout(1500) # リンクカード展開の待ち時間
-            else:
-                # 通常テキスト行
+            # URLが単独行として来た場合、入力後にEnterを押してnoteの自動ブログカード化を待機
+            if trimmed_line == amazon_url or trimmed_line.startswith("http"):
                 page.keyboard.type(trimmed_line, delay=5)
                 page.keyboard.press("Enter")
+                page.wait_for_timeout(3000) # リンクカード展開のために長めに待機
+            else:
+                # 通常テキスト行
+                page.keyboard.type(trimmed_line, delay=2)
+                page.keyboard.press("Enter")
             
-            page.wait_for_timeout(100)
+            page.wait_for_timeout(50)
 
         page.wait_for_timeout(2000)
         
