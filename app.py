@@ -3,6 +3,7 @@ import os
 import json
 import time
 import requests
+import re
 import urllib.parse
 
 print("=== SNS Auto Publisher Started ===", flush=True)
@@ -31,58 +32,73 @@ if not all([GEMINI_KEY, NOTE_SESSION]):
     print("エラー: 必須の環境変数が設定されていません。", flush=True)
     sys.exit(1)
 
-# 過去の紹介履歴を読み込む
+# 過去の紹介履歴（ASIN）を読み込む
 def get_history():
     if os.path.exists(HISTORY_LOG):
         with open(HISTORY_LOG, "r", encoding="utf-8") as f:
             return [line.strip() for line in f if line.strip()]
     return []
 
-# 新しい商品を履歴に追加
-def add_history(item):
+# 新しい商品（ASIN）を履歴に追加
+def add_history(item_asin):
     with open(HISTORY_LOG, "a", encoding="utf-8") as f:
-        f.write(f"{item}\n")
+        f.write(f"{item_asin}\n")
 
-# 1. 売れ筋ターゲットの選定
-def fetch_target_item(history):
-    print("1/4 売れ筋商品をリサーチ中...", flush=True)
+# 1. 実際のAmazonページから売れ筋商品をスクレイピングで1つ取得する
+def fetch_real_amazon_item(history):
+    target_url = "https://www.amazon.co.jp/b?ref=SiteStripe&node=24999964051"
+    print(f"1/4 Amazonランキングから商品を直接取得中... ({target_url})", flush=True)
     
-    history_str = "、".join(history[-30:]) if history else "なし"
-    
-    prompt = f"""
-    Amazonやnoteで現在ヒットしている・話題になっている具体的な売れ筋商品（ガジェット、書籍、家電、便利グッズなど）を1つ選定してください。
-    
-    【ルール】
-    ・以下の「紹介済みリスト」にあるものは絶対に除外してください。
-    紹介済みリスト: [{history_str}]
-    
-    ・出力は「選定した商品名（または製品ジャンル名）」のみを1行で返してください。解説や挨拶は不要です。
-    """
-    
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash:generateContent?key={GEMINI_KEY}"
-    headers = {"Content-Type": "application/json"}
-    payload = {"contents": [{"parts": [{"text": prompt}]}]}
-
-    response = requests.post(url, json=payload, headers=headers)
-    if response.status_code == 200:
-        item = response.json()['candidates'][0]['content']['parts'][0]['text'].strip()
-        print(f" -> 選定アイテム: 【{item}】", flush=True)
-        return item
-    else:
-        print(" -> 選定失敗のためデフォルトテーマを使用します。", flush=True)
-        return "最新のおすすめ便利ガジェット"
+    with sync_playwright() as p:
+        browser = p.chromium.launch(headless=True)
+        page = browser.new_page(user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
+        
+        try:
+            page.goto(target_url, wait_until="domcontentloaded", timeout=30000)
+            page.wait_for_timeout(3000) # 画像やJSの読み込み待機
+            
+            # 商品リンク（/dp/ または /product/ を含むもの）を全て取得
+            links = page.locator("a[href*='/dp/'], a[href*='/product/']").all()
+            
+            for link in links:
+                href = link.get_attribute("href") or ""
+                # URLから10桁のASINコードを抽出
+                match = re.search(r'/(?:dp|product)/([A-Z0-9]{10})', href)
+                if match:
+                    asin = match.group(1)
+                    # 既に紹介済みの商品はスキップ
+                    if asin in history:
+                        continue
+                        
+                    title = link.text_content().strip()
+                    # テキストがない場合は画像（img）のalt属性からタイトル取得を試みる
+                    if not title:
+                        img = link.locator("img").first
+                        if img.count() > 0:
+                            title = img.get_attribute("alt") or ""
+                    
+                    if title and len(title) > 5:
+                        print(f" -> 取得成功: 【{title[:30]}...】 (ASIN: {asin})", flush=True)
+                        browser.close()
+                        return title, asin
+                        
+        except Exception as e:
+            print(f" -> Amazonアクセス中にエラーが発生しました: {e}", flush=True)
+            
+        browser.close()
+        
+    print(" -> 商品取得に失敗したため、デフォルト商品を使用します。", flush=True)
+    return "Anker PowerCore 10000 (モバイルバッテリー)", "B019GNUT0C"
 
 # 2. 記事＆告知文の生成
-def build_content(item_name):
-    print(f"2/4 【{item_name}】のコンテンツを生成中...", flush=True)
+def build_content(item_name, item_asin):
+    print(f"2/4 コンテンツを生成中...", flush=True)
 
-    # urllib.parse.quote_plusを使ってスペースを"+"にするなど、より安全なURLエンコードを実施
-    safe_item_name = urllib.parse.quote_plus(item_name)
-    amazon_url = f"https://www.amazon.co.jp/s?k={safe_item_name}&tag={AMAZON_ID}" if AMAZON_ID else "https://www.amazon.co.jp"
+    # 1つの商品に絞った確実なURL（ASIN指定）を生成
+    amazon_url = f"https://www.amazon.co.jp/dp/{item_asin}?tag={AMAZON_ID}" if AMAZON_ID else f"https://www.amazon.co.jp/dp/{item_asin}"
 
-    # プロンプト修正: AIにはURLを直接触らせず、プレースホルダー [[AMAZON_URL]] を出力させる
     prompt = f"""
-    話題の商品「{item_name}」を紹介するnote記事とX(Twitter)告知文を作成してください。
+    Amazonの売れ筋商品「{item_name}」を紹介するnote記事とX(Twitter)告知文を作成してください。
     
     【ルール】
     ・文体は親しみやすく丁寧な「〜です・〜ます」調
@@ -94,8 +110,8 @@ def build_content(item_name):
     [1行目: 惹きつけるnoteタイトル]
     [2行目以降: note本文（1200文字程度）]
     ・人気の理由、メリット・デメリット、おすすめな人を詳しく解説。
-    ・文章内に「👉 Amazonで詳細やレビューを確認する」というテキストを配置し、必ずその【次の行】にプレースホルダー文字列として [[AMAZON_URL]] と1行だけ記述してください。（これ以外のURLや文字は混ぜないでください）
-    ・末尾に「※この記事にはAmazonアソシエイトリンクが含まれています」とハッシュタグ3つを記載。
+    ・文章内に「👉 Amazonで詳細やレビューを確認する」というテキストを配置し、必ずその【次の行】にプレースホルダー文字列として [[AMAZON_URL]] と1行だけ記述してください。（これ以外のURLや文字は絶対に混ぜないでください）
+    ・末尾に「※この記事にはAmazonアソシエイトリンクが含まれています」と記載。
 
     ---X_POST---
     [X(Twitter)用の告知文（100文字程度・絵文字付き・魅力を簡潔に表現）]
@@ -128,20 +144,14 @@ def build_content(item_name):
     title = lines[0].strip()
     body = "\n".join(lines[1:]).strip()
     
-    # AIが指示を無視して1行にくっつけた場合の強制改行処理
-    body = body.replace("👉 Amazonで詳細やレビューを確認する:", "👉 Amazonで詳細やレビューを確認する\n")
-    body = body.replace("👉 Amazonで詳細やレビューを確認する", "👉 Amazonで詳細やレビューを確認する\n")
-    
-    # プレースホルダーを、プログラム側で生成した確実なURLにすり替える
+    # URLプレースホルダーの置き換えと強制改行処理
     body = body.replace("[[AMAZON_URL]]", amazon_url)
-    
-    # 余分な空白行を整理
     while "\n\n\n" in body:
         body = body.replace("\n\n\n", "\n\n")
     
     return title, body, x_text.strip(), amazon_url
 
-# 3. noteへ投稿（キーボード操作シミュレーションによる確実なリンク/カード化）
+# 3. noteへ投稿（ペーストシミュレーションで確実なブログカード化）
 def publish_note(title, body, amazon_url):
     print("3/4 noteへ自動投稿中...", flush=True)
     
@@ -174,26 +184,36 @@ def publish_note(title, body, amazon_url):
         page.click(body_selector)
         page.wait_for_timeout(500)
 
-        # 本文を段落（行）ごとに分解して順番に入力していく
+        # 本文を段落ごとに高速入力
         paragraphs = body.split("\n")
         for line in paragraphs:
             trimmed_line = line.strip()
             if not trimmed_line:
-                # 空白行はEnterで改行
                 page.keyboard.press("Enter")
                 continue
             
-            # URLが単独行として来た場合、入力後にEnterを押してnoteの自動ブログカード化を待機
-            if trimmed_line == amazon_url or trimmed_line.startswith("http"):
-                page.keyboard.type(trimmed_line, delay=5)
+            # URLの行が来たら、noteエディタ内で「ペースト（貼り付け）」イベントを強制発火させる
+            if trimmed_line == amazon_url:
+                page.evaluate("""(url) => {
+                    const dt = new DataTransfer();
+                    dt.setData('text/plain', url);
+                    const event = new ClipboardEvent('paste', {
+                        clipboardData: dt,
+                        bubbles: true,
+                        cancelable: true
+                    });
+                    document.activeElement.dispatchEvent(event);
+                }""", amazon_url)
+                
+                page.wait_for_timeout(1500)
+                # ペースト後にEnterを押すことでnoteのブログカード（埋め込み）機能を呼び出す
                 page.keyboard.press("Enter")
-                page.wait_for_timeout(3000) # リンクカード展開のために長めに待機
+                page.wait_for_timeout(4000) # カードの展開を待つ
             else:
-                # 通常テキスト行
-                page.keyboard.type(trimmed_line, delay=2)
+                # 通常のテキスト行はPlaywrightの高速入力を使用
+                page.keyboard.insert_text(trimmed_line)
+                page.wait_for_timeout(100)
                 page.keyboard.press("Enter")
-            
-            page.wait_for_timeout(50)
 
         page.wait_for_timeout(2000)
         
@@ -260,15 +280,18 @@ def publish_x(x_text, post_url):
 
 if __name__ == "__main__":
     history = get_history()
-    target_item = fetch_target_item(history)
     
-    title, body, x_text, amazon_url = build_content(target_item)
+    # AIの予測ではなく、実在するAmazonページからASINをスクレイピング
+    item_title, item_asin = fetch_real_amazon_item(history)
+    
+    title, body, x_text, amazon_url = build_content(item_title, item_asin)
     print(f"\n生成タイトル: {title}\n", flush=True)
     
     note_url = publish_note(title, body, amazon_url)
     if note_url and "note.com" in note_url and "editor.note.com" not in note_url:
         print(f"✅ note投稿成功: {note_url}", flush=True)
         publish_x(x_text, note_url)
-        add_history(target_item)
+        # 次回重複しないようASINを履歴に保存
+        add_history(item_asin)
     else:
         print(f"⚠️ noteの完全公開の確認が取れなかったため、URL（{note_url}）でのX投稿および履歴保存を保留しました。", flush=True)
