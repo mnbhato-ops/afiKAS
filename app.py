@@ -71,7 +71,7 @@ def fetch_target_item(history):
         print(" -> 選定失敗のためデフォルトテーマを使用します。", flush=True)
         return "最新のおすすめ便利ガジェット"
 
-# 2. 記事＆告知文の生成（時間指定なし）
+# 2. 記事＆告知文の生成
 def build_content(item_name):
     print(f"2/4 【{item_name}】のコンテンツを生成中...", flush=True)
 
@@ -126,7 +126,7 @@ def build_content(item_name):
     
     return title, body, x_text.strip()
 
-# 3. noteへ投稿
+# 3. noteへ投稿（確実な公開ボタン押下と遷移待機）
 def publish_note(title, body):
     print("3/4 noteへ自動投稿中...", flush=True)
     
@@ -147,11 +147,13 @@ def publish_note(title, body):
         print(" -> エディタを開いています...", flush=True)
         page.goto("https://note.com/notes/new", wait_until="networkidle")
         
+        # タイトル入力
         title_selector = "textarea[placeholder*='タイトル'], textarea[placeholder*='記事タイトル'], textarea"
         page.wait_for_selector(title_selector, timeout=30000)
         page.fill(title_selector, title)
         page.wait_for_timeout(1000)
         
+        # 本文入力
         body_selector = "div[data-placeholder*='本文'], div[contenteditable='true']"
         page.fill(body_selector, body)
         page.wait_for_timeout(3000)
@@ -160,17 +162,29 @@ def publish_note(title, body):
         config_btn = "button:has-text('公開設定'), button:has-text('公開に進む')"
         page.wait_for_selector(config_btn, timeout=15000)
         page.click(config_btn)
-        page.wait_for_timeout(4000)
+        page.wait_for_timeout(5000)
         
         print(" -> 投稿を実行しています...", flush=True)
-        submit_btn = "button:has-text('投稿する'), button:has-text('記事を公開'), button:has-text('公開する')"
+        # より広範なボタン判定
+        submit_btn = "button:has-text('投稿する'), button:has-text('記事を公開'), button:has-text('公開する'), button:has-text('投稿')"
         page.wait_for_selector(submit_btn, timeout=15000)
+        
+        # 確実にクリック
         page.click(submit_btn)
         
-        page.wait_for_timeout(7000)
-        
-        post_url = page.url
-        print(f" -> 公開完了: {post_url}", flush=True)
+        # 公開完了のページ（editor.note.com ではないページ）に切り替わるまで待機
+        print(" -> 記事の公開完了を待機中...", flush=True)
+        for _ in range(15):
+            time.sleep(2)
+            current_url = page.url
+            if "note.com" in current_url and "editor.note.com" not in current_url:
+                post_url = current_url
+                break
+
+        if not post_url:
+            post_url = page.url
+
+        print(f" -> 処理終了時URL: {post_url}", flush=True)
         
         browser.close()
         
@@ -179,7 +193,7 @@ def publish_note(title, body):
             
     return post_url
 
-# 4. X(Twitter)へ告知投稿
+# 4. X(Twitter)へ告知投稿（エラーハンドリング強化）
 def publish_x(x_text, post_url):
     print("4/4 X(Twitter)へ送信中...", flush=True)
     
@@ -197,12 +211,17 @@ def publish_x(x_text, post_url):
     )
     
     payload = {"text": full_text}
-    res = requests.post(endpoint, auth=auth, json=payload)
-
-    if res.status_code in [200, 201]:
-        print(" -> Xへの投稿が完了しました！🎉", flush=True)
-    else:
-        print(f" -> X投稿失敗 (Status: {res.status_code}): {res.text}", flush=True)
+    
+    try:
+        res = requests.post(endpoint, auth=auth, json=payload)
+        if res.status_code in [200, 201]:
+            print(" -> Xへの投稿が完了しました！🎉", flush=True)
+        elif res.status_code == 402:
+            print(" -> [注意] X APIのクレジット制限(Status 402)のため、ツイート投稿をスキップしました。", flush=True)
+        else:
+            print(f" -> X投稿失敗 (Status: {res.status_code}): {res.text}", flush=True)
+    except Exception as e:
+        print(f" -> X投稿時にエラーが発生しました: {e}", flush=True)
 
 if __name__ == "__main__":
     history = get_history()
@@ -212,6 +231,9 @@ if __name__ == "__main__":
     print(f"\n生成タイトル: {title}\n", flush=True)
     
     note_url = publish_note(title, body)
-    if note_url and "note.com" in note_url:
+    if note_url and "note.com" in note_url and "editor.note.com" not in note_url:
+        print(f"✅ note投稿成功: {note_url}", flush=True)
         publish_x(x_text, note_url)
         add_history(target_item)
+    else:
+        print(f"⚠️ noteの完全公開の確認が取れなかったため、URL（{note_url}）でのX投稿および履歴保存を保留しました。", flush=True)
