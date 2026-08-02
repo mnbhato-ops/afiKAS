@@ -44,7 +44,7 @@ def add_history(item_asin):
     with open(HISTORY_LOG, "a", encoding="utf-8") as f:
         f.write(f"{item_asin}\n")
 
-# 1. 実際のAmazonページから売れ筋商品をスクレイピングで1つ取得する
+# 1. 指定されたAmazonのランキングページから売れ筋商品を1つスクレイピング
 def fetch_real_amazon_item(history):
     target_url = "https://www.amazon.co.jp/b?ref=SiteStripe&node=24999964051"
     print(f"1/4 Amazonランキングから商品を直接取得中... ({target_url})", flush=True)
@@ -55,23 +55,19 @@ def fetch_real_amazon_item(history):
         
         try:
             page.goto(target_url, wait_until="domcontentloaded", timeout=30000)
-            page.wait_for_timeout(3000) # 画像やJSの読み込み待機
+            page.wait_for_timeout(3000)
             
-            # 商品リンク（/dp/ または /product/ を含むもの）を全て取得
             links = page.locator("a[href*='/dp/'], a[href*='/product/']").all()
             
             for link in links:
                 href = link.get_attribute("href") or ""
-                # URLから10桁のASINコードを抽出
                 match = re.search(r'/(?:dp|product)/([A-Z0-9]{10})', href)
                 if match:
                     asin = match.group(1)
-                    # 既に紹介済みの商品はスキップ
                     if asin in history:
                         continue
                         
                     title = link.text_content().strip()
-                    # テキストがない場合は画像（img）のalt属性からタイトル取得を試みる
                     if not title:
                         img = link.locator("img").first
                         if img.count() > 0:
@@ -88,33 +84,52 @@ def fetch_real_amazon_item(history):
         browser.close()
         
     print(" -> 商品取得に失敗したため、デフォルト商品を使用します。", flush=True)
-    return "Anker PowerCore 10000 (モバイルバッテリー)", "B019GNUT0C"
+    return "Amazon Echo Dot (エコードット)", "B09B8XJ7X3"
 
-# 2. 記事＆告知文の生成
+# 2. 記事＆告知文の生成（高品質クリエイタースタイルを強制）
 def build_content(item_name, item_asin):
-    print(f"2/4 コンテンツを生成中...", flush=True)
+    print(f"2/4 【{item_name[:20]}...】のコンテンツを生成中...", flush=True)
 
-    # 1つの商品に絞った確実なURL（ASIN指定）を生成
     amazon_url = f"https://www.amazon.co.jp/dp/{item_asin}?tag={AMAZON_ID}" if AMAZON_ID else f"https://www.amazon.co.jp/dp/{item_asin}"
 
     prompt = f"""
-    Amazonの売れ筋商品「{item_name}」を紹介するnote記事とX(Twitter)告知文を作成してください。
+    Amazonの売れ筋商品「{item_name}」を紹介する、洗練されたガジェット系note記事とX(Twitter)告知文を作成してください。
+    指定するnoteクリエイター（yohaku_gadget風）の、読みやすく美しいスタイルを完全に再現してください。
     
-    【ルール】
-    ・文体は親しみやすく丁寧な「〜です・〜ます」調
-    ・読者の興味を惹く構成で魅力をしっかり解説してください
+    【スタイル・ルールの絶対遵守】
+    ・文体：「〜です・〜ます」調。読者に語りかけるような親しみやすさと、説得力のあるレビュー。
+    ・空白と余白：スマホでの読みやすさを最優先し、1〜2文ごとに必ず改行（空白行）を入れること。文字が詰まった長文段落は絶対にNGです。
+    ・見出し：大見出しは必ず行頭に「## 」、小見出しは「### 」を使用してください。
     
-    【出力フォーマット】
-    「---X_POST---」という区切り線を必ず挟んで出力してください。
-
-    [1行目: 惹きつけるnoteタイトル]
-    [2行目以降: note本文（1200文字程度）]
-    ・人気の理由、メリット・デメリット、おすすめな人を詳しく解説。
-    ・文章内に「👉 Amazonで詳細やレビューを確認する」というテキストを配置し、必ずその【次の行】にプレースホルダー文字列として [[AMAZON_URL]] と1行だけ記述してください。（これ以外のURLや文字は絶対に混ぜないでください）
-    ・末尾に「※この記事にはAmazonアソシエイトリンクが含まれています」と記載。
-
+    【記事の構成（この通りに書いてください）】
+    [1行目: 惹きつけるタイトル（例：【購入レビュー】〇〇を買ったら生活の質が爆上がりした話、など）]
+    [2行目以降: 本文]
+    
+    （ゆったりとした導入。挨拶、悩みの共感、この商品に出会ったきっかけなど）
+    
+    ## 結論：一言でいうとどんな商品？
+    （結論をズバッと書く）
+    
+    ## 〇〇のここがスゴイ
+    （3つほどのメリットを、小見出し「### 」を用いて深掘り）
+    
+    ## 気になる点・注意点
+    （読者の信頼を得るため、正直なマイナスポイントも1〜2つ書く）
+    
+    ## こんな人におすすめ
+    （箇条書き「・」で対象者をリストアップ）
+    
+    ## まとめ
+    （総評と背中を押す一言）
+    
+    （※ここから下にAmazonリンクを配置※）
+    👇 Amazonで詳細やレビューを確認する
+    [[AMAZON_URL]]
+    
+    ※この記事にはAmazonアソシエイトリンクが含まれています
+    
     ---X_POST---
-    [X(Twitter)用の告知文（100文字程度・絵文字付き・魅力を簡潔に表現）]
+    [X(Twitter)用の告知文（100文字程度・絵文字付き・記事への誘導・ハッシュタグ付き）]
     """
     
     url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash:generateContent?key={GEMINI_KEY}"
@@ -138,22 +153,21 @@ def build_content(item_name, item_asin):
     if "---X_POST---" in full_text:
         note_part, x_text = full_text.split("---X_POST---", 1)
     else:
-        note_part, x_text = full_text, f"本日のおすすめ商品「{item_name}」についてのレビュー記事を公開しました！✨"
+        note_part, x_text = full_text, f"本日のおすすめ商品レビューを公開しました！✨"
 
     lines = note_part.strip().split("\n")
-    title = lines[0].strip()
+    title = lines[0].replace("# ", "").replace("## ", "").strip()
     body = "\n".join(lines[1:]).strip()
     
-    # URLプレースホルダーの置き換えと強制改行処理
     body = body.replace("[[AMAZON_URL]]", amazon_url)
     while "\n\n\n" in body:
         body = body.replace("\n\n\n", "\n\n")
     
     return title, body, x_text.strip(), amazon_url
 
-# 3. noteへ投稿（ペーストシミュレーションで確実なブログカード化）
+# 3. noteへ投稿（専用リンクカード化 ＆ 確実な公開ボタン押下）
 def publish_note(title, body, amazon_url):
-    print("3/4 noteへ自動投稿中...", flush=True)
+    print("3/4 noteへ自動投稿中（リッチテキスト変換処理）...", flush=True)
     
     state_data = json.loads(NOTE_SESSION)
     with open("session_temp.json", "w") as f:
@@ -172,67 +186,73 @@ def publish_note(title, body, amazon_url):
         print(" -> エディタを開いています...", flush=True)
         page.goto("https://note.com/notes/new", wait_until="networkidle")
         
-        # タイトル入力
         title_selector = "textarea[placeholder*='タイトル'], textarea[placeholder*='記事タイトル'], textarea"
         page.wait_for_selector(title_selector, timeout=30000)
         page.fill(title_selector, title)
         page.wait_for_timeout(1000)
         
-        # 本文エリアのクリックと入力準備
         body_selector = "div[data-placeholder*='本文'], div[contenteditable='true']"
         page.wait_for_selector(body_selector, timeout=15000)
         page.click(body_selector)
         page.wait_for_timeout(500)
 
-        # 本文を段落ごとに高速入力
         paragraphs = body.split("\n")
         for line in paragraphs:
             trimmed_line = line.strip()
+            
             if not trimmed_line:
                 page.keyboard.press("Enter")
                 continue
             
-            # URLの行が来たら、noteエディタ内で「ペースト（貼り付け）」イベントを強制発火させる
             if trimmed_line == amazon_url:
-                page.evaluate("""(url) => {
-                    const dt = new DataTransfer();
-                    dt.setData('text/plain', url);
-                    const event = new ClipboardEvent('paste', {
-                        clipboardData: dt,
-                        bubbles: true,
-                        cancelable: true
-                    });
-                    document.activeElement.dispatchEvent(event);
-                }""", amazon_url)
+                # 【修正1】URLを「専用のクリックするやつ（リンクカード）」にするための処理
+                print(" -> URLのリンクカード化処理を実行中...", flush=True)
+                page.keyboard.insert_text(amazon_url)
+                page.wait_for_timeout(1000) # 入力後、少し待つ
+                page.keyboard.press("Enter") # ここでEnterを押すことでnote側がカード変換を始める
+                page.wait_for_timeout(6000) # カードの画像等が読み込まれるまで長めに待機
+                page.keyboard.press("Enter") # 念のためカードの下に改行を追加
                 
-                page.wait_for_timeout(1500)
-                # ペースト後にEnterを押すことでnoteのブログカード（埋め込み）機能を呼び出す
+            elif trimmed_line.startswith("### "):
+                page.keyboard.type("### ")
+                page.wait_for_timeout(300) 
+                page.keyboard.insert_text(trimmed_line[4:])
                 page.keyboard.press("Enter")
-                page.wait_for_timeout(4000) # カードの展開を待つ
+                
+            elif trimmed_line.startswith("## "):
+                page.keyboard.type("## ")
+                page.wait_for_timeout(300) 
+                page.keyboard.insert_text(trimmed_line[3:])
+                page.keyboard.press("Enter")
+                
             else:
-                # 通常のテキスト行はPlaywrightの高速入力を使用
                 page.keyboard.insert_text(trimmed_line)
-                page.wait_for_timeout(100)
+                page.wait_for_timeout(50)
                 page.keyboard.press("Enter")
 
         page.wait_for_timeout(2000)
         
+        # 【修正2】下書きで止まらないように、公開処理のボタンクリックを強化
         print(" -> 公開設定を開きます...", flush=True)
-        config_btn = "button:has-text('公開設定'), button:has-text('公開に進む')"
-        page.wait_for_selector(config_btn, timeout=15000)
-        page.click(config_btn)
-        page.wait_for_timeout(5000)
+        config_btn = page.locator("button:has-text('公開設定')").first
+        config_btn.click()
+        
+        # モーダル（公開設定画面）が下から上に上がってくるアニメーションを待つ
+        print(" -> 公開画面の準備を待機中...", flush=True)
+        page.wait_for_timeout(4000)
         
         print(" -> 投稿を実行しています...", flush=True)
-        submit_btn = "button:has-text('投稿する'), button:has-text('記事を公開'), button:has-text('公開する'), button:has-text('投稿')"
-        page.wait_for_selector(submit_btn, timeout=15000)
-        page.click(submit_btn)
+        # モーダル内にある「公開する」または「投稿する」ボタンを正確に狙い撃ち
+        submit_btn = page.locator("button:has-text('公開する'), button:has-text('投稿する'), button:has-text('いますぐ公開')").first
+        submit_btn.click()
         
         print(" -> 記事の公開完了を待機中...", flush=True)
+        # 公開完了してURLが変わるまで待機
         for _ in range(15):
             time.sleep(2)
             current_url = page.url
-            if "note.com" in current_url and "editor.note.com" not in current_url:
+            # editor.note.com や drafts のURLから、通常の公開URLに変わったかチェック
+            if "note.com" in current_url and "editor" not in current_url and "drafts" not in current_url:
                 post_url = current_url
                 break
 
@@ -240,7 +260,6 @@ def publish_note(title, body, amazon_url):
             post_url = page.url
 
         print(f" -> 処理終了時URL: {post_url}", flush=True)
-        
         browser.close()
         
         if os.path.exists("session_temp.json"):
@@ -251,7 +270,6 @@ def publish_note(title, body, amazon_url):
 # 4. X(Twitter)へ告知投稿
 def publish_x(x_text, post_url):
     print("4/4 X(Twitter)へ送信中...", flush=True)
-    
     if not all([X_CONSUMER_KEY, X_CONSUMER_SECRET, X_USER_TOKEN, X_USER_SECRET]):
         print(" -> X APIキー未設定のためスキップします。", flush=True)
         return
@@ -261,37 +279,31 @@ def publish_x(x_text, post_url):
         full_text = full_text[:270] + "...\n" + post_url
 
     endpoint = "https://api.twitter.com/2/tweets"
-    auth = requests_oauthlib.OAuth1(
-        X_CONSUMER_KEY, X_CONSUMER_SECRET, X_USER_TOKEN, X_USER_SECRET
-    )
-    
-    payload = {"text": full_text}
+    auth = requests_oauthlib.OAuth1(X_CONSUMER_KEY, X_CONSUMER_SECRET, X_USER_TOKEN, X_USER_SECRET)
     
     try:
-        res = requests.post(endpoint, auth=auth, json=payload)
+        res = requests.post(endpoint, auth=auth, json={"text": full_text})
         if res.status_code in [200, 201]:
             print(" -> Xへの投稿が完了しました！🎉", flush=True)
         elif res.status_code == 402:
-            print(" -> [注意] X APIの制限(Status 402)のため投稿をスキップしました。", flush=True)
+            print(" -> [注意] X APIの制限のため投稿をスキップしました。", flush=True)
         else:
-            print(f" -> X投稿失敗 (Status: {res.status_code}): {res.text}", flush=True)
+            print(f" -> X投稿失敗: {res.text}", flush=True)
     except Exception as e:
         print(f" -> X投稿エラー: {e}", flush=True)
 
 if __name__ == "__main__":
     history = get_history()
     
-    # AIの予測ではなく、実在するAmazonページからASINをスクレイピング
     item_title, item_asin = fetch_real_amazon_item(history)
-    
     title, body, x_text, amazon_url = build_content(item_title, item_asin)
+    
     print(f"\n生成タイトル: {title}\n", flush=True)
     
     note_url = publish_note(title, body, amazon_url)
-    if note_url and "note.com" in note_url and "editor.note.com" not in note_url:
+    if note_url and "note.com" in note_url and "editor" not in note_url and "drafts" not in note_url:
         print(f"✅ note投稿成功: {note_url}", flush=True)
         publish_x(x_text, note_url)
-        # 次回重複しないようASINを履歴に保存
         add_history(item_asin)
     else:
-        print(f"⚠️ noteの完全公開の確認が取れなかったため、URL（{note_url}）でのX投稿および履歴保存を保留しました。", flush=True)
+        print(f"⚠️ noteの完全公開の確認が取れなかったため、履歴保存を保留しました。", flush=True)
