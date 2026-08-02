@@ -129,7 +129,7 @@ def build_content(item_name):
     
     return title, body, x_text.strip(), amazon_url
 
-# 3. noteへ投稿（ペーストイベントのシミュレートによる完全ハイパーリンク化）
+# 3. noteへ投稿（キーボード操作シミュレーションによる確実なリンク/カード化）
 def publish_note(title, body, amazon_url):
     print("3/4 noteへ自動投稿中...", flush=True)
     
@@ -156,37 +156,34 @@ def publish_note(title, body, amazon_url):
         page.fill(title_selector, title)
         page.wait_for_timeout(1000)
         
-        # 本文入力エリアの要素を待機
+        # 本文エリアのクリックと入力準備
         body_selector = "div[data-placeholder*='本文'], div[contenteditable='true']"
         page.wait_for_selector(body_selector, timeout=15000)
-        
-        # 本文中の改行を <br> に変換し、Amazon URL 部分を <a> タグに変換
-        html_body = body.replace("\n", "<br>")
-        if amazon_url in body:
-            link_html = f'<a href="{amazon_url}" target="_blank" rel="noopener noreferrer">{amazon_url}</a>'
-            html_body = html_body.replace(amazon_url, link_html)
+        page.click(body_selector)
+        page.wait_for_timeout(500)
 
-        # クリップボードのペーストイベントを擬似発火させてエディタに注入（ProseMirror対応）
-        page.evaluate("""({ selector, htmlContent }) => {
-            const el = document.querySelector(selector);
-            if (!el) return;
+        # 本文を段落（行）ごとに分解して順番に入力していく
+        paragraphs = body.split("\n")
+        for line in paragraphs:
+            trimmed_line = line.strip()
+            if not trimmed_line:
+                # 空白行はEnterで改行
+                page.keyboard.press("Enter")
+                continue
             
-            el.focus();
+            # URLが含まれる行の場合、文字を入力した後にEnterを押してnoteの自動リンク変換を発火させる
+            if amazon_url in trimmed_line or trimmed_line.startswith("http"):
+                page.keyboard.type(trimmed_line, delay=10)
+                page.keyboard.press("Enter")
+                page.wait_for_timeout(1500) # リンクカード展開の待ち時間
+            else:
+                # 通常テキスト行
+                page.keyboard.type(trimmed_line, delay=5)
+                page.keyboard.press("Enter")
             
-            const dataTransfer = new DataTransfer();
-            dataTransfer.setData('text/html', htmlContent);
-            dataTransfer.setData('text/plain', htmlContent.replace(/<br\s*[\/]?>/gi, "\\n"));
-            
-            const pasteEvent = new ClipboardEvent('paste', {
-                clipboardData: dataTransfer,
-                bubbles: true,
-                cancelable: true
-            });
-            
-            el.dispatchEvent(pasteEvent);
-        }""", {"selector": body_selector, "htmlContent": html_body})
-        
-        page.wait_for_timeout(3000)
+            page.wait_for_timeout(100)
+
+        page.wait_for_timeout(2000)
         
         print(" -> 公開設定を開きます...", flush=True)
         config_btn = "button:has-text('公開設定'), button:has-text('公開に進む')"
