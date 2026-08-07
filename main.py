@@ -175,8 +175,8 @@ def publish_threads_post(user_id: str, access_token: str, creation_id: str) -> s
 
 
 def main():
-    gemini_api_key = os.environ.get("GEMINI_API_KEY")
-    associate_tag = os.environ.get("ASSOCIATE_TAG")
+    gemini_key = os.environ.get("GEMINI_API_KEY")
+    amazon_id = os.environ.get("ASSOCIATE_TAG")
     threads_user_id = os.environ.get("THREADS_USER_ID", "me")
     threads_access_token = os.environ.get("THREADS_ACCESS_TOKEN")
 
