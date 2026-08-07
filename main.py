@@ -181,10 +181,10 @@ def main():
     threads_access_token = os.environ.get("THREADS_ACCESS_TOKEN")
 
     missing_vars = []
-    if not gemini_api_key:
-        missing_vars.append("GEMINI_API_KEY")
-    if not associate_tag:
-        missing_vars.append("ASSOCIATE_TAG")
+    if not gemini_key:
+        missing_vars.append("GEMINI_KEY")
+    if not amazon_id:
+        missing_vars.append("AMAZON_ID")
     if not threads_access_token:
         missing_vars.append("THREADS_ACCESS_TOKEN")
 
