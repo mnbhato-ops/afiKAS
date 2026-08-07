@@ -28,7 +28,7 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
-           - name: Run Auto-Post Script
+      - name: Run Auto-Post Script
         env:
           GEMINI_KEY: ${{ secrets.GEMINI_KEY }}
           AMAZON_ID: ${{ secrets.AMAZON_ID }}
