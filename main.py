@@ -128,6 +128,7 @@ def publish_threads_post(user_id: str, access_token: str, creation_id: str) -> s
     """
     Threads Graph APIを使用してコンテナを本投稿として公開する
     """
+    """Threads Graph APIを使用してコンテナを本投稿として公開する"""
     target = user_id if user_id and user_id != "me" else "me"
     url = f"https://graph.threads.net/v1.0/{target}/threads_publish"
     
@@ -147,11 +148,11 @@ def publish_threads_post(user_id: str, access_token: str, creation_id: str) -> s
 def main():
     gemini_api_key = os.environ.get("GEMINI_KEY")
     associate_tag = os.environ.get("AMAZON_ID")
-    threads_user_id = os.environ.get("THREADS_USER_ID", "me")
+       threads_user_id = os.environ.get("THREADS_USER_ID", "me")
     threads_access_token = os.environ.get("THREADS_ACCESS_TOKEN")
     missing_vars = []
     if not gemini_api_key:
-         missing_vars.append("GEMINI_KEY")
+        missing_vars.append("GEMINI_KEY")
     if not associate_tag:
         missing_vars.append("AMAZON_ID")
     if not threads_access_token:
@@ -185,7 +186,7 @@ def main():
         access_token=threads_access_token,
         creation_id=creation_id,
     )
-# 6. 履歴の更新と保存
+    # 6. 履歴の更新と保存
     posted_asins.append(recommendation.asin)
     save_posted_asins(POSTED_ASINS_FILE, posted_asins)
     print(f"Successfully updated {POSTED_ASINS_FILE} with new ASIN: {recommendation.asin}")
