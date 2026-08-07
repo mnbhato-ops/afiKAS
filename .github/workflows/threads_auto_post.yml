@@ -28,10 +28,10 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
-      - name: Run Auto-Post Script
+           - name: Run Auto-Post Script
         env:
-          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
-          ASSOCIATE_TAG: ${{ secrets.ASSOCIATE_TAG }}
+          GEMINI_KEY: ${{ secrets.GEMINI_KEY }}
+          AMAZON_ID: ${{ secrets.AMAZON_ID }}
           THREADS_USER_ID: ${{ secrets.THREADS_USER_ID }}
           THREADS_ACCESS_TOKEN: ${{ secrets.THREADS_ACCESS_TOKEN }}
         run: |
