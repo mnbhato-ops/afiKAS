@@ -96,12 +96,13 @@ def create_threads_post(user_id: str, access_token: str, text: str, link_url: st
     target = user_id if user_id and user_id != "me" else "me"
     url = f"https://graph.threads.net/v1.0/{target}/threads"
 
+    # 本文内に青文字のタップ可能アフィリエイトリンクを配置
     full_text = text if link_url in text else f"{text}\n\n🛒詳細・購入はこちら👇\n{link_url}"
 
+    # link_attachmentを外し、下部の灰色「amazon.co.jp」枠を非表示にしてスッキリ投稿
     payload = {
         "media_type": "TEXT",
         "text": full_text,
-        "link_attachment": link_url,
         "access_token": access_token,
     }
 
