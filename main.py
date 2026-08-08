@@ -43,7 +43,7 @@ def save_posted_asins(filepath: str, asins: list[str]) -> None:
 def fetch_product_candidate(api_key: str, posted_asins: list[str]) -> ProductRecommendation:
     """
     Gemini APIを使用して30〜50代女性向けのおすすめ商品と投稿本文を生成する。
-    429エラーが発生した場合はSearch Groundingなしのノーマルモードおよびモデル切替へフォールバックする。
+    使用モデル優先度: gemini-3.6-flash, gemini-3.5-flash, gemini-1.5-flash
     """
     client = genai.Client(api_key=api_key)
     excluded_str = ", ".join(posted_asins) if posted_asins else "なし"
@@ -76,13 +76,14 @@ Amazon.co.jpで話題・人気となっている「30〜50代女性」ターゲ�
 """
 
     attempts_configs = [
-        {"name": "gemini-3.5-flash with Grounding", "model": "gemini-2.5-flash", "use_grounding": True},
-        {"name": "gemini-3.5-flash Standard (Fallback)", "model": "gemini-2.5-flash", "use_grounding": False},
-        {"name": "gemini-3.5-flash Standard (Fallback)", "model": "gemini-1.5-flash", "use_grounding": False},
+        {"name": "gemini-3.6-flash with Grounding", "model": "gemini-3.6-flash", "use_grounding": True},
+        {"name": "gemini-3.6-flash Standard Mode", "model": "gemini-3.6-flash", "use_grounding": False},
+        {"name": "gemini-3.5-flash Standard Mode", "model": "gemini-3.5-flash", "use_grounding": False},
+        {"name": "gemini-1.5-flash Standard Mode", "model": "gemini-1.5-flash", "use_grounding": False},
     ]
 
     for attempt, attempt_info in enumerate(attempts_configs):
-        print(f"Fetching recommendation via Gemini API ({attempt_info['name']}) [Attempt {attempt+1}/3]...")
+        print(f"Fetching recommendation via Gemini API ({attempt_info['name']}) [Attempt {attempt+1}/{len(attempts_configs)}]...")
         
         if attempt_info["use_grounding"]:
             config = types.GenerateContentConfig(
