@@ -96,10 +96,8 @@ def create_threads_post(user_id: str, access_token: str, text: str, link_url: st
     target = user_id if user_id and user_id != "me" else "me"
     url = f"https://graph.threads.net/v1.0/{target}/threads"
 
-    # 本文内に青文字のタップ可能アフィリエイトリンクを配置
     full_text = text if link_url in text else f"{text}\n\n🛒詳細・購入はこちら👇\n{link_url}"
 
-    # link_attachmentを外し、下部の灰色「amazon.co.jp」枠を非表示にしてスッキリ投稿
     payload = {
         "media_type": "TEXT",
         "text": full_text,
@@ -121,6 +119,7 @@ def create_threads_post(user_id: str, access_token: str, text: str, link_url: st
 
 
 def publish_threads_post(user_id: str, access_token: str, creation_id: str) -> str:
+    """Threads Graph APIを使用してコンテナを本投稿として公開する（サーバー処理ラグ対策リトライ付き）"""
     target = user_id if user_id and user_id != "me" else "me"
     url = f"https://graph.threads.net/v1.0/{target}/threads_publish"
 
@@ -129,18 +128,22 @@ def publish_threads_post(user_id: str, access_token: str, creation_id: str) -> s
         "access_token": access_token,
     }
 
-    print(f"Publishing Threads post (ID: {creation_id})...")
-    response = requests.post(url, data=payload, timeout=30)
-    res_data = response.json()
+    # Metaサーバー側のコンテナインデックス同期ラグ（Media Not Found error）対策
+    for attempt in range(3):
+        time.sleep(5)
+        print(f"Publishing Threads post (ID: {creation_id}) [Attempt {attempt+1}/3]...")
+        response = requests.post(url, data=payload, timeout=30)
+        res_data = response.json()
 
-    if response.status_code != 200 or "id" not in res_data:
-        print(f"Threads Publish Error: Status {response.status_code}")
-        print(f"Response details: {res_data}")
-        sys.exit(1)
+        if response.status_code == 200 and "id" in res_data:
+            published_id = res_data["id"]
+            print(f"Threads post published successfully! Post ID: {published_id}")
+            return published_id
 
-    published_id = res_data["id"]
-    print(f"Threads post published successfully! Post ID: {published_id}")
-    return published_id
+        print(f"Publish attempt {attempt+1} warning: Status {response.status_code}, Response: {res_data}")
+
+    print("Threads Publish Error: Failed to publish post after retries.")
+    sys.exit(1)
 
 
 def main():
