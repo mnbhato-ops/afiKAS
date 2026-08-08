@@ -145,13 +145,21 @@ Amazon.co.jpで話題・人気となっている「30〜50代女性」ターゲ�
 
 
 def create_threads_post(user_id: str, access_token: str, text: str, link_url: str) -> str:
-    """Threads Graph APIを使用して投稿メディアコンテナを作成する"""
+    """
+    Threads Graph APIを使用して投稿メディアコンテナを作成する。
+    リンクをアクティブなタップ可能URLおよびリンクアタッチメントとして正しく認識させる。
+    """
     target = user_id if user_id and user_id != "me" else "me"
     url = f"https://graph.threads.net/v1.0/{target}/threads"
 
+    # 本文中にアフィリエイトURLが直接含まれていない場合、末尾に自動追加して青字ハイパーリンク化
+    full_text = text
+    if link_url not in text:
+        full_text = f"{text}\n\n🛒詳細・購入はこちら👇\n{link_url}"
+
     payload = {
         "media_type": "TEXT",
-        "text": text,
+        "text": full_text,
         "link_attachment": link_url,
         "access_token": access_token,
     }
