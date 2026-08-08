@@ -2,6 +2,7 @@ import json
 import os
 import re
 import sys
+import time
 import requests
 from pydantic import BaseModel, Field
 from google import genai
@@ -41,8 +42,8 @@ def save_posted_asins(filepath: str, asins: list[str]) -> None:
 
 def fetch_product_candidate(api_key: str, posted_asins: list[str]) -> ProductRecommendation:
     """
-    Gemini API (Google Search Grounding有効化) を使用して
-    30〜50代女性向けのおすすめ商品と投稿本文を生成する
+    Gemini APIを使用して30〜50代女性向けのおすすめ商品と投稿本文を生成する。
+    429エラーが発生した場合はSearch Groundingなしのノーマルモードおよびモデル切替へフォールバックする。
     """
     client = genai.Client(api_key=api_key)
     excluded_str = ", ".join(posted_asins) if posted_asins else "なし"
@@ -51,7 +52,7 @@ def fetch_product_candidate(api_key: str, posted_asins: list[str]) -> ProductRec
 あなたは30〜50代女性に絶大な支持を得る人気ライフスタイルブロガー・商品キュレーターです。
 
 【目的】
-Amazon.co.jpで現在話題・人気となっている「30〜50代女性」ターゲットの良質な商品を1つ厳選し、Threads投稿用データを作成してください。
+Amazon.co.jpで話題・人気となっている「30〜50代女性」ターゲットの良質な商品を1つ厳選し、Threads投稿用データを作成してください。
 
 【ターゲット層の興味・関心領域】
 - 忙しい毎日の負担を減らす「時短家電」「キッチンの便利ツール」
@@ -63,9 +64,9 @@ Amazon.co.jpで現在話題・人気となっている「30〜50代女性」タ�
 {excluded_str}
 ※上記リストに含まれるASIN（過去紹介済み商品）は絶対に除外してください。
 
-【検索・選定手順】
-1. Google検索を使用し、Amazon.co.jpで現在高評価・人気の最新トレンド商品を調査してください。
-2. ターゲット層（30〜50代女性）に確実にヒットする実在の10桁英数字ASIN（例: B0XXXXXXXX など）を抽出してください。
+【選定手順】
+1. ターゲット層（30〜50代女性）に人気・高評価の実在する10桁英数字ASIN（例: B0XXXXXXXX など）を選定してください。
+2. Amazon.co.jpで正しく検索可能な商品を選択してください。
 
 【Threads投稿文作成ルール】
 - 文字数: 日本語で200文字〜400文字程度
@@ -74,19 +75,32 @@ Amazon.co.jpで現在話題・人気となっている「30〜50代女性」タ�
 - ハッシュタグ: 商品に関連するハッシュタグに加え、広告表記「#PR」を必ず含めてください。
 """
 
-    config = types.GenerateContentConfig(
-        tools=[types.Tool(google_search=types.GoogleSearch())],
-        response_mime_type="application/json",
-        response_schema=ProductRecommendation,
-        temperature=0.7,
-    )
+    attempts_configs = [
+        {"name": "gemini-3.5-flash with Grounding", "model": "gemini-2.5-flash", "use_grounding": True},
+        {"name": "gemini-3.5-flash Standard (Fallback)", "model": "gemini-2.5-flash", "use_grounding": False},
+        {"name": "gemini-3.5-flash Standard (Fallback)", "model": "gemini-1.5-flash", "use_grounding": False},
+    ]
 
-    max_retries = 3
-    for attempt in range(max_retries):
-        print(f"Fetching product recommendation from Gemini API (Attempt {attempt+1}/{max_retries})...")
+    for attempt, attempt_info in enumerate(attempts_configs):
+        print(f"Fetching recommendation via Gemini API ({attempt_info['name']}) [Attempt {attempt+1}/3]...")
+        
+        if attempt_info["use_grounding"]:
+            config = types.GenerateContentConfig(
+                tools=[types.Tool(google_search=types.GoogleSearch())],
+                response_mime_type="application/json",
+                response_schema=ProductRecommendation,
+                temperature=0.7,
+            )
+        else:
+            config = types.GenerateContentConfig(
+                response_mime_type="application/json",
+                response_schema=ProductRecommendation,
+                temperature=0.7,
+            )
+
         try:
             response = client.models.generate_content(
-                model="gemini-3.5-flash-lite",
+                model=attempt_info["model"],
                 contents=prompt,
                 config=config,
             )
@@ -106,20 +120,27 @@ Amazon.co.jpで現在話題・人気となっている「30〜50代女性」タ�
             # ASINフォーマット検証（10桁英数字）
             if not re.match(r"^[A-Z0-9]{10}$", asin):
                 print(f"Invalid ASIN format received: '{asin}'. Retrying...")
+                time.sleep(3)
                 continue
 
             # 重複チェック
             if asin in posted_asins:
                 print(f"ASIN '{asin}' was already posted in past. Retrying for another product...")
+                time.sleep(3)
                 continue
 
             res_data.asin = asin
             return res_data
 
         except Exception as e:
-            print(f"Error on attempt {attempt+1}: {e}")
+            print(f"Error on attempt {attempt+1} ({attempt_info['name']}): {e}")
+            if "429" in str(e) or "RESOURCE_EXHAUSTED" in str(e):
+                print("429 Quota Exceeded. Trying next configuration...")
+                time.sleep(5)
+            else:
+                time.sleep(3)
 
-    raise ValueError("Failed to obtain a valid, non-duplicate product recommendation after maximum retries.")
+    raise ValueError("Failed to obtain a valid, non-duplicate product recommendation after maximum retries. Please check your Gemini API Key quota.")
 
 
 def create_threads_post(user_id: str, access_token: str, text: str, link_url: str) -> str:
