@@ -86,7 +86,7 @@ Amazon.co.jpで現在話題・人気となっている「30〜50代女性」タ�
         print(f"Fetching product recommendation from Gemini API (Attempt {attempt+1}/{max_retries})...")
         try:
             response = client.models.generate_content(
-                model="gemini-3.5-flash",
+                model="gemini-3.5-flash-lite",
                 contents=prompt,
                 config=config,
             )
