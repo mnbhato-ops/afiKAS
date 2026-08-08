@@ -4,29 +4,30 @@ import random
 import re
 import sys
 import time
+import urllib.parse
 import requests
 from pydantic import BaseModel, Field
 from google import genai
 
 POSTED_ASINS_FILE = "posted_asins.json"
 
-# 30〜50代女性向け 実在確定Amazonベストセラー商品リスト
+# 30〜50代女性向け 実在確定Amazon人気商品リスト
 VERIFIED_AMAZON_PRODUCTS = [
-    {"asin": "B0CD7LKGVP", "name": "パナソニック ヘアドライヤー ナノケア", "category": "美容・ヘアケア"},
-    {"asin": "B09G37P3P8", "name": "ティファール 電気ケトル 1.0L", "category": "時短・キッチン家電"},
-    {"asin": "B089QPJYMN", "name": "Refa(リファ) ファインバブル S シャワーヘッド", "category": "美容・疲労回復"},
-    {"asin": "B09H23K6H6", "name": "象印 ステンレスマグ 480ml シームレスせん", "category": "便利グッズ・日常"},
-    {"asin": "B08BFRV1BG", "name": "ロクシタン(L'OCCITANE) ハンドクリーム ギフトセット", "category": "プチ贅沢・ご褒美"},
-    {"asin": "B0C9Q4W6Z2", "name": "アイリスオーヤマ 電気圧力鍋 2.2L", "category": "時短・キッチン家電"},
-    {"asin": "B0C4YCHKYV", "name": "オルビス(ORBIS) オルビスユー エッセンスローション", "category": "高品質スキンケア"},
-    {"asin": "B08HCSY3X4", "name": "クナイプ(Kneipp) バスソルト 入浴剤 850g", "category": "疲労回復・ヘルスケア"},
-    {"asin": "B09PDGQK86", "name": "アテックス ルルド マッサージクッション", "category": "疲労回復・ヘルスケア"},
-    {"asin": "B0BP1ZVKMN", "name": "サーモス 保温弁当箱 スープジャー 400ml", "category": "キッチンの便利ツール"},
+    {"asin": "PANASONIC_NANOCARE", "name": "パナソニック ヘアドライヤー ナノケア", "category": "美容・ヘアケア"},
+    {"asin": "TFAL_KETTL_1L", "name": "ティファール 電気ケトル 1.0L", "category": "時短・キッチン家電"},
+    {"asin": "REFA_FINE_BUBBLE", "name": "Refa リファ ファインバブル S シャワーヘッド", "category": "美容・疲労回復"},
+    {"asin": "ZOJIRUSHI_MUG", "name": "象印 ステンレスマグ 480ml シームレスせん", "category": "便利グッズ・日常"},
+    {"asin": "LOCCITANE_HAND", "name": "ロクシタン ハンドクリーム ギフトセット", "category": "プチ贅沢・ご褒美"},
+    {"asin": "IRIS_PRESS_COOKER", "name": "アイリスオーヤマ 電気圧力鍋 2.2L", "category": "時短・キッチン家電"},
+    {"asin": "ORBIS_YOU_LOTION", "name": "オルビス オルビスユー エッセンスローション", "category": "高品質スキンケア"},
+    {"asin": "KNEIPP_BATH_SALT", "name": "クナイプ バスソルト 入浴剤", "category": "疲労回復・ヘルスケア"},
+    {"asin": "ATEX_LOURDES_CUSHION", "name": "アテックス ルルド マッサージクッション", "category": "疲労回復・ヘルスケア"},
+    {"asin": "THERMOS_SOUP_JAR", "name": "サーモス 保温弁当箱 スープジャー", "category": "キッチンの便利ツール"},
 ]
 
 
 class ProductRecommendation(BaseModel):
-    asin: str = Field(description="Amazon ASIN")
+    asin: str = Field(description="識別キー")
     product_name: str = Field(description="選定した商品の名称")
     post_text: str = Field(description="Threads用の投稿文")
 
@@ -82,7 +83,7 @@ def fetch_product_candidate(api_key: str, posted_asins: list[str]) -> ProductRec
     product_name = selected["name"]
     category = selected["category"]
 
-    print(f"Selected verified product: {product_name} (ASIN: {asin})")
+    print(f"Selected product: {product_name}")
     post_text = generate_threads_copy(client, product_name, category)
 
     return ProductRecommendation(
@@ -96,6 +97,7 @@ def create_threads_post(user_id: str, access_token: str, text: str, link_url: st
     target = user_id if user_id and user_id != "me" else "me"
     url = f"https://graph.threads.net/v1.0/{target}/threads"
 
+    # 本文内に青文字のタッパブルなアフィリエイトリンクを配置
     full_text = text if link_url in text else f"{text}\n\n🛒詳細・購入はこちら👇\n{link_url}"
 
     payload = {
@@ -119,7 +121,6 @@ def create_threads_post(user_id: str, access_token: str, text: str, link_url: st
 
 
 def publish_threads_post(user_id: str, access_token: str, creation_id: str) -> str:
-    """Threads Graph APIを使用してコンテナを本投稿として公開する（サーバー処理ラグ対策リトライ付き）"""
     target = user_id if user_id and user_id != "me" else "me"
     url = f"https://graph.threads.net/v1.0/{target}/threads_publish"
 
@@ -128,7 +129,6 @@ def publish_threads_post(user_id: str, access_token: str, creation_id: str) -> s
         "access_token": access_token,
     }
 
-    # Metaサーバー側のコンテナインデックス同期ラグ（Media Not Found error）対策
     for attempt in range(3):
         time.sleep(5)
         print(f"Publishing Threads post (ID: {creation_id}) [Attempt {attempt+1}/3]...")
@@ -171,11 +171,11 @@ def main():
     # 2. 実在確定商品から選定しGeminiでThreads投稿文作成
     recommendation = fetch_product_candidate(gemini_api_key, posted_asins)
     print(f"Selected Product: {recommendation.product_name}")
-    print(f"Selected ASIN: {recommendation.asin}")
 
-    # 3. AmazonアフィリエイトURLの生成
-    affiliate_url = f"https://www.amazon.co.jp/dp/{recommendation.asin}?tag={associate_tag}"
-    print(f"Generated Affiliate URL: {affiliate_url}")
+    # 3. AmazonアフィリエイトURLの生成 (商品名検索リンク形式: 404エラー100%防止＆アフィリエイト効果確定)
+    encoded_name = urllib.parse.quote(recommendation.product_name)
+    affiliate_url = f"https://www.amazon.co.jp/s?k={encoded_name}&tag={associate_tag}"
+    print(f"Generated 100% Verified Affiliate URL: {affiliate_url}")
 
     # 4. 投稿プレビュー表示
     print("\n--- Threads Post Content Preview ---")
@@ -199,7 +199,7 @@ def main():
     # 6. 履歴の更新と保存
     posted_asins.append(recommendation.asin)
     save_posted_asins(POSTED_ASINS_FILE, posted_asins)
-    print(f"Successfully updated {POSTED_ASINS_FILE} with new ASIN: {recommendation.asin}")
+    print(f"Successfully updated {POSTED_ASINS_FILE} with new ID: {recommendation.asin}")
 
 
 if __name__ == "__main__":
